@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
 from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -18,25 +17,28 @@ from sentence_transformers import SentenceTransformer, util
 # pip install pandas numpy torch sentence-transformers scikit-learn tqdm
 
 # ─── 1. Load & Merge with Renamed Columns ────────────────────────────────────
-reviews = pd.read_csv("../data/processed/reviews_noisy.csv")
-meta    = pd.read_csv("../data/processed/meta_noisy.csv")
+reviews = pd.read_csv("../data/processed/reviews_denoised_combined.csv")
+meta = pd.read_csv("../data/processed/meta_denoised_combined.csv")
 
-# Rename metadata processed_text → 'text'
-meta.rename(columns={'processed_text': 'text'}, inplace=True)
-
-# Merge so every row has exactly one 'text' field
+# Merge so every row has exactly one text field
 df = pd.merge(
-    reviews[['user_id','parent_asin','rating','processed_text']],
-    meta[['parent_asin','text']],
+    reviews[['user_id', 'parent_asin', 'rating', 'text']],
+    meta[['parent_asin', 'description']],
     on='parent_asin', how='left'
 )
-df['text'] = df['text'].fillna(df['processed_text'])
+
+# Create combined_text, prioritizing review text
+df['combined_text'] = df['text'].fillna('').astype(str)
+df['combined_text'] = df['combined_text'].where(df['combined_text'] != '', df['description'].fillna(''))
+
+# Drop rows where combined_text is empty
+df = df[df['combined_text'] != ''].reset_index(drop=True)
 
 # ─── 2. Encode Users, Items & Labels ──────────────────────────────────────────
 user_enc = LabelEncoder().fit(df['user_id'])
 item_enc = LabelEncoder().fit(df['parent_asin'])
-df['user']  = user_enc.transform(df['user_id'])
-df['item']  = item_enc.transform(df['parent_asin'])
+df['user'] = user_enc.transform(df['user_id'])
+df['item'] = item_enc.transform(df['parent_asin'])
 df['label'] = (df['rating'] >= 4).astype(int)
 
 # ─── 3. Train/Test Split ──────────────────────────────────────────────────────
@@ -48,9 +50,13 @@ print(f"Using device: {device}")
 
 # ─── 5. Compute Item Embeddings ───────────────────────────────────────────────
 sbert = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+
 # Build a list of texts in item_index order
-item_texts = [ df.loc[df['item']==i, 'text'].iloc[0] 
-               for i in range(len(item_enc.classes_)) ]
+print("Building item text list...")
+item_texts = []
+for i in tqdm(range(len(item_enc.classes_)), desc="Item Texts"):
+    item_text = df.loc[df['item'] == i, 'combined_text'].iloc[0] if not df.loc[df['item'] == i, 'combined_text'].empty else "No description available"
+    item_texts.append(item_text)
 
 print("Computing item embeddings...")
 item_embeddings = sbert.encode(
@@ -61,7 +67,7 @@ item_embeddings = sbert.encode(
 print("Building user profiles...")
 user_profiles = {}
 for u, grp in tqdm(train_df.groupby('user'), desc="Users"):
-    pos_items = grp.loc[grp['label']==1, 'item'].values
+    pos_items = grp.loc[grp['label'] == 1, 'item'].values
     if len(pos_items):
         user_profiles[u] = item_embeddings[pos_items].mean(dim=0)
     else:
@@ -74,8 +80,8 @@ hit_count = 0
 num_users = test_df['user'].nunique()
 
 for u, grp in tqdm(test_df.groupby('user'), total=num_users, desc="Evaluating"):
-    true_set = set(grp.loc[grp['label']==1, 'item'])
-    profile  = user_profiles.get(u, torch.zeros(item_embeddings.size(1), device=device))
+    true_set = set(grp.loc[grp['label'] == 1, 'item'])
+    profile = user_profiles.get(u, torch.zeros(item_embeddings.size(1), device=device))
 
     sims = util.cos_sim(profile, item_embeddings)[0]  # [num_items]
     topk = torch.topk(sims, k=10).indices.cpu().tolist()
@@ -91,11 +97,11 @@ for u, grp in tqdm(test_df.groupby('user'), total=num_users, desc="Evaluating"):
 
 # ─── 8. Compute & Print Metrics ───────────────────────────────────────────────
 precision = precision_score(y_true, y_pred)
-recall    = recall_score(y_true, y_pred)
-f1        = f1_score(y_true, y_pred)
-rmse      = np.sqrt(mean_squared_error(y_true, y_score))
-mae       = mean_absolute_error(y_true, y_score)
-hit_rate  = hit_count / num_users
+recall = recall_score(y_true, y_pred)
+f1 = f1_score(y_true, y_pred)
+rmse = np.sqrt(mean_squared_error(y_true, y_score))
+mae = mean_absolute_error(y_true, y_score)
+hit_rate = hit_count / num_users if num_users > 0 else 0
 
 print("\n--- Evaluation Results (Hold-out Set) ---")
 print(f"Relevance Threshold: >= 0.5")

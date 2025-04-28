@@ -1,126 +1,105 @@
-# src/dataclean/handle_outliers.py
+# src/dataclean/denoise.py
 import pandas as pd
 import numpy as np
-from tqdm.auto import tqdm # Use auto for compatibility
+from tqdm.auto import tqdm
 
-# Define default input and output paths - CORRECTED
-# Default input is the output of the previous step (missing handling)
-DEFAULT_REVIEWS_INPUT_PATH = "../../data/processed/reviews_missing_handled.csv" # <-- Correct input
-DEFAULT_META_INPUT_PATH = "../../data/processed/meta_missing_handled.csv"     # <-- Correct input
-REVIEWS_OUTPUT_PATH = "../../data/processed/reviews_outliers_handled.csv"
-META_OUTPUT_PATH = "../../data/processed/meta_outliers_handled.csv"
-
-# --- Outlier Handling Function (IQR method) ---
-
-def handle_outliers_iqr(df, numeric_cols, cap_method='whisker'):
-    """
-    Identifies and handles outliers in specified numeric columns using the IQR method.
-    Outliers can be capped at the whiskers or replaced with median/mean (default: whisker).
-    """
-    df_handled = df.copy() # Work on a copy
-    total_outliers_capped = 0
-
-    print(f"  Handling outliers using IQR method (capping at {cap_method})...")
-    for col in tqdm(numeric_cols, desc=" Handling outliers in numeric columns"):
-        if col in df_handled.columns:
-            # Ensure column is numeric, coercing errors to NaN
-            df_handled[col] = pd.to_numeric(df_handled[col], errors='coerce')
-
-            # Drop NaN values for IQR calculation to avoid errors, but remember original length
-            col_series = df_handled[col].dropna()
-            if len(col_series) < 2: # Need at least 2 non-NaN values for quantiles
-                 print(f"    Skipping outlier handling for '{col}': Insufficient non-missing data.")
-                 continue
-
-            q1 = col_series.quantile(0.25)
-            q3 = col_series.quantile(0.75)
-            iqr = q3 - q1
-
-            lower_bound = q1 - 1.5 * iqr
-            upper_bound = q3 + 1.5 * iqr
-
-            # Identify outliers - apply bounds to the original column which might have NaNs
-            outlier_mask = (df_handled[col] < lower_bound) | (df_handled[col] > upper_bound)
-            num_outliers = outlier_mask.sum()
-
-            if num_outliers > 0:
-                print(f"    Found {num_outliers} outliers in '{col}'. Applying capping.")
-                if cap_method == 'whisker':
-                    # Cap outliers at whiskers
-                    df_handled[col] = np.where(df_handled[col] < lower_bound, lower_bound, df_handled[col])
-                    df_handled[col] = np.where(df_handled[col] > upper_bound, upper_bound, df_handled[col])
-                elif cap_method == 'median':
-                     median_val = col_series.median()
-                     df_handled.loc[outlier_mask, col] = median_val
-                     print(f"    Replaced outliers with median ({median_val}).")
-                elif cap_method == 'mean':
-                     mean_val = col_series.mean()
-                     df_handled.loc[outlier_mask, col] = mean_val
-                     print(f"    Replaced outliers with mean ({mean_val}).")
-                else:
-                     print(f"    Warning: Unknown capping method '{cap_method}'. No outliers handled for '{col}'.")
-
-                total_outliers_capped += num_outliers
-            else:
-                # print(f"    No outliers found in '{col}'.") # Suppress in combined view
-                pass
-        # else: print(f"    Warning: Numeric column '{col}' not found.") # Suppress in combined view
-
-    print(f"  Total outliers handled (capped/replaced): {total_outliers_capped}")
-
-    return df_handled
-
-# --- Main Execution for standalone use ---
-if __name__ == "__main__":
-    print("Running handle_outliers.py as a standalone script.")
-    # Attempt to load output from previous step (missing handling)
-    reviews_input_path = DEFAULT_REVIEWS_INPUT_PATH
-    meta_input_path = DEFAULT_META_INPUT_PATH
-
-    print(f"Attempting to load data from: {reviews_input_path} and {meta_input_path}")
+# Import cleaning functions from individual scripts
+# Assuming the scripts are in the same directory or accessible via relative import
+try:
+    # Correct imports assuming scripts are in the same package/directory
+    from .clean_text import apply_text_cleaning # Only need the apply function
+    from .handle_missing import handle_missing_values, TEXT_PLACEHOLDER # Need function and placeholder
+    from .handle_outliers import handle_outliers_iqr # Need the function
+except ImportError:
+    print("Could not perform relative imports. Ensure scripts are in a package or adjust import paths.")
+    print("Attempting direct imports (may fail if scripts are not in Python path)...")
     try:
-        reviews_df = pd.read_csv(reviews_input_path)
-        meta_df = pd.read_csv(meta_input_path)
-        print("Data loaded successfully.")
-    except FileNotFoundError:
-        print(f"Could not find files at {reviews_input_path} and {meta_input_path}.")
-        # Fallback to previous stages if intermediate files are not found
-        print("Attempting to load previous cleaning stage data...")
-        try:
-            reviews_df = pd.read_csv("../../data/processed/reviews_missing_handled.csv")
-            meta_df = pd.read_csv("../../data/processed/meta_missing_handled.csv")
-            print("Loaded missing_handled data as fallback.")
-        except FileNotFoundError:
-            try:
-                reviews_df = pd.read_csv("../../data/processed/reviews_text_cleaned.csv")
-                meta_df = pd.read_csv("../../data/processed/meta_text_cleaned.csv")
-                print("Loaded text_cleaned data as fallback.")
-            except FileNotFoundError:
-                try:
-                     # Try noisy as fallback
-                    reviews_df = pd.read_csv("../../data/processed/reviews_noisy.csv")
-                    meta_df = pd.read_csv("../../data/processed/meta_noisy.csv")
-                    print("Loaded noisy data as fallback.")
-                except FileNotFoundError as e:
-                    print(f"Error loading fallback data: {e}. Make sure input files exist.")
-                    exit()
+        # Fallback for direct execution if not in a package
+        from clean_text import apply_text_cleaning
+        from handle_missing import handle_missing_values, TEXT_PLACEHOLDER
+        from handle_outliers import handle_outliers_iqr
+    except ImportError:
+         print("Direct imports also failed. Please check your script location and Python path.")
+         print("Cannot run denoise pipeline without cleaning functions.")
+         # Define dummy functions to allow script to run without crashing, but it won't clean
+         def apply_text_cleaning(reviews_df, meta_df): print("Dummy text cleaning..."); return reviews_df, meta_df
+         def handle_missing_values(df, numeric_cols, text_cols, placeholder): print("Dummy missing handling..."); return df
+         def handle_outliers_iqr(df, numeric_cols, cap_method): print("Dummy outlier handling..."); return df
+         TEXT_PLACEHOLDER = "[Placeholder Not Imported]"
 
 
-    print("\nHandling outliers in reviews data...")
-    # Define numeric columns for reviews where outliers are relevant (rating)
-    reviews_numeric_cols = ['rating', 'helpful_vote'] # Also check helpful_vote
+# Define input (baseline - noisy data) and final output paths - CORRECTED
+REVIEWS_INPUT_PATH_BASELINE = "../../data/processed/reviews_noisy.csv" # <-- Correct baseline input
+META_INPUT_PATH_BASELINE = "../../data/processed/meta_noisy.csv"     # <-- Correct baseline input
+REVIEWS_OUTPUT_PATH_DENOISED = "../../data/processed/reviews_denoised_combined.csv"
+META_OUTPUT_PATH_DENOISED = "../../data/processed/meta_denoised_combined.csv"
 
-    reviews_df_handled = handle_outliers_iqr(reviews_df.copy(), reviews_numeric_cols, cap_method='whisker')
+# --- Full Denoising Pipeline Function ---
 
+def denoise_data_pipeline(reviews_df, meta_df):
+    """
+    Applies the full denoising pipeline by calling imported functions:
+    Text Cleaning -> Missing Values -> Outliers.
+    """
+    print("Starting full denoising pipeline...")
 
-    print("\nHandling outliers in metadata...")
-    # Define numeric columns for metadata where outliers are relevant
-    meta_numeric_cols = ['average_rating', 'rating_number', 'price']
+    # Step 1: Text Cleaning
+    print("\n--- Step 1: Text Cleaning ---")
+    # apply_text_cleaning modifies dataframes in place and returns them
+    # The dataframes passed here are the noisy ones loaded in main
+    reviews_df, meta_df = apply_text_cleaning(reviews_df, meta_df)
+    print("--- Text Cleaning Step Complete ---")
 
-    meta_df_handled = handle_outliers_iqr(meta_df.copy(), meta_numeric_cols, cap_method='whisker')
+    # Step 2: Handling Missing Values
+    print("\n--- Step 2: Handling Missing Values ---")
+    # Define columns to handle missing values - include original and cleaned columns
+    reviews_numeric_cols_missing = ['rating', 'helpful_vote']
+    # Target all object/string cols (includes original and cleaned text)
+    reviews_text_cols_missing = [col for col in reviews_df.columns if reviews_df[col].dtype == 'object' or reviews_df[col].dtype == 'string']
 
+    meta_numeric_cols_missing = ['average_rating', 'rating_number', 'price']
+    meta_text_cols_missing = [col for col in meta_df.columns if meta_df[col].dtype == 'object' or meta_df[col].dtype == 'string']
 
-    print(f"\nSaving data with outliers handled to: {REVIEWS_OUTPUT_PATH} and {META_OUTPUT_PATH}")
-    reviews_df_handled.to_csv(REVIEWS_OUTPUT_PATH, index=False)
-    meta_df_handled.to_csv(META_OUTPUT_PATH, index=False)
-    print("Files with outliers handled saved.")
+    # handle_missing_values returns a modified copy
+    # Pass the dataframes modified by the previous step
+    reviews_df = handle_missing_values(reviews_df, reviews_numeric_cols_missing, reviews_text_cols_missing, TEXT_PLACEHOLDER)
+    meta_df = handle_missing_values(meta_df, meta_numeric_cols_missing, meta_text_cols_missing, TEXT_PLACEHOLDER)
+    print("--- Missing Value Handling Step Complete ---")
+
+    # Step 3: Handling Outliers
+    print("\n--- Step 3: Handling Outliers ---")
+    # Define numeric columns for outlier handling
+    reviews_numeric_cols_outliers = ['rating', 'helpful_vote']
+    meta_numeric_cols_outliers = ['average_rating', 'rating_number', 'price']
+
+    # handle_outliers_iqr returns a modified copy
+    # Pass the dataframes modified by the previous step
+    reviews_df = handle_outliers_iqr(reviews_df, reviews_numeric_cols_outliers, cap_method='whisker')
+    meta_df = handle_outliers_iqr(meta_df, meta_numeric_cols_outliers, cap_method='whisker')
+    print("--- Outlier Handling Step Complete ---")
+
+    print("\nFull denoising pipeline complete.")
+    return reviews_df, meta_df
+
+# --- Main Execution ---
+
+if __name__ == "__main__":
+    print("Running denoise.py (Full Denoising Pipeline).")
+    print(f"Loading baseline data from: {REVIEWS_INPUT_PATH_BASELINE} and {META_INPUT_PATH_BASELINE}")
+    try:
+        # Load baseline data (noisy data) to start the pipeline
+        reviews_df_baseline = pd.read_csv(REVIEWS_INPUT_PATH_BASELINE)
+        meta_df_baseline = pd.read_csv(META_INPUT_PATH_BASELINE)
+        print("Baseline data loaded successfully.")
+    except FileNotFoundError as e:
+        print(f"Error loading baseline data: {e}. Make sure {REVIEWS_INPUT_PATH_BASELINE} and {META_INPUT_PATH_BASELINE} exist.")
+        exit()
+
+    # Run the full denoising pipeline on copies of the baseline data
+    # The pipeline functions modify/return copies, so passing copies of baseline is good practice
+    reviews_denoised, meta_denoised = denoise_data_pipeline(reviews_df_baseline.copy(), meta_df_baseline.copy())
+
+    print(f"\nSaving fully denoised data to: {REVIEWS_OUTPUT_PATH_DENOISED} and {META_OUTPUT_PATH_DENOISED}")
+    reviews_denoised.to_csv(REVIEWS_OUTPUT_PATH_DENOISED, index=False)
+    meta_denoised.to_csv(META_OUTPUT_PATH_DENOISED, index=False)
+    print("Fully denoised files saved.")
