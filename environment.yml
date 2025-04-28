@@ -1,0 +1,11 @@
+name: CS6386_final_project  # Conda environment name for the project
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pandas
+  - tqdm
+  - pip
+  - pip:
+      - holoclean
