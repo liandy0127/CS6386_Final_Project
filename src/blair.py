@@ -59,6 +59,8 @@ df['combined_text'] = df['combined_text'].where(df['combined_text'] != '', df['d
 
 # Drop rows with empty combined_text
 df = df[df['combined_text'] != ''].reset_index(drop=True)
+# Filter out rows where combined_text contains '[Missing Value]'
+df = df[~df['combined_text'].str.contains(r'\[Missing Value\]', na=False)].reset_index(drop=True)
 
 # ─── 3. Encode & Split ─────────────────────────────────────────────────────────
 user_enc = LabelEncoder().fit(df['user_id'])
@@ -105,6 +107,18 @@ item_texts_raw = []
 for i in tqdm(range(len(item_enc.classes_)), desc="Item Texts"):
     item_text = df.loc[df['item'] == i, 'combined_text'].iloc[0] if not df.loc[df['item'] == i, 'combined_text'].empty else "No description available"
     item_texts_raw.append(item_text)
+
+# Create a dictionary mapping item IDs to their raw text
+item_text_map = {str(item_enc.classes_[i]): item_texts_raw[i] for i in range(len(item_enc.classes_))}
+
+# Create item_info_map mapping item IDs to dict with 'title' and 'description'
+item_info_map = {}
+for _, row in meta.iterrows():
+    item_id = str(row['parent_asin'])
+    item_info_map[item_id] = {
+        'title': row.get('title', '') if 'title' in row else '',
+        'description': row.get('description', '') if 'description' in row else ''
+    }
 
 print("Computing raw embeddings...")
 emb_raw = embed_texts(item_texts_raw, clean=False)
@@ -157,5 +171,38 @@ def evaluate(embeddings, desc):
     print("-------------------------------------------")
 
 # ─── 8. Run & Compare ──────────────────────────────────────────────────────────
-evaluate(emb_raw, "Raw")
-evaluate(emb_clean, "Cleaned")
+#evaluate(emb_raw, "Raw")
+#evaluate(emb_clean, "Cleaned")
+
+
+# ─── 9. Recommendation Function ────────────────────────────────────────────────
+def recommend_items(query_text: str, top_k: int = 10) -> list:
+    """
+    Recommend top_k item IDs most similar to the query_text using cleaned item embeddings.
+    Returns a list of item IDs as strings.
+    """
+    # If query_text matches an item ID, retrieve its cleaned text
+    if query_text in item_text_map:
+        query_emb = embed_texts([item_text_map[query_text]], clean=True)[0]
+    else:
+        # Embed the query text (cleaned)
+        query_emb = embed_texts([query_text], clean=True)[0]
+    # Compute cosine similarity to all item embeddings
+    sims = torch.nn.functional.cosine_similarity(query_emb.unsqueeze(0), emb_clean)
+    # Get top_k indices
+    topk_indices = torch.topk(sims, k=top_k).indices.cpu().tolist()
+    # Map indices to item IDs and info
+    results = []
+    for i in topk_indices:
+        item_id = str(item_enc.classes_[i])
+        item_info = item_info_map.get(item_id, {})
+        title = item_info.get('title', '').strip()
+        if not title:
+            continue
+        results.append({'title': title})
+    return results
+
+# ─── 10. Script Guard ──────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    evaluate(emb_raw, "Raw")
+    evaluate(emb_clean, "Cleaned")

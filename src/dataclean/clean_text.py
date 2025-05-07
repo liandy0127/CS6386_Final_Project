@@ -4,6 +4,7 @@ import re
 import nltk
 from tqdm.auto import tqdm # Use auto for compatibility
 import string
+import json
 
 # Download necessary NLTK data (run this script once to ensure downloads)
 # Corrected exception handling for downloads
@@ -38,10 +39,11 @@ lemmatizer = nltk.WordNetLemmatizer()
 stop_words = set(nltk.corpus.stopwords.words('english'))
 
 # Define default input and output paths - CORRECTED
-DEFAULT_REVIEWS_INPUT_PATH = "../../data/processed/reviews_noisy.csv" # <-- Correct input
-DEFAULT_META_INPUT_PATH = "../../data/processed/meta_noisy.csv"     # <-- Correct input
-REVIEWS_OUTPUT_PATH = "../../data/processed/reviews_text_cleaned.csv"
-META_OUTPUT_PATH = "../../data/processed/meta_text_cleaned.csv"
+DEFAULT_REVIEWS_INPUT_PATH = "data/processed/reviews_noisy.csv" # <-- Correct input
+DEFAULT_META_INPUT_PATH = "data/processed/meta_noisy.csv"     # <-- Correct input
+REVIEWS_OUTPUT_PATH = "data/processed/reviews_text_cleaned.csv"
+META_OUTPUT_PATH = "data/processed/meta_text_cleaned.csv"
+CLEAN_TEXT_STATS_PATH = "data/processed/clean_text_stats.json"
 
 # --- Text Cleaning Function ---
 
@@ -164,3 +166,17 @@ if __name__ == "__main__":
     reviews_cleaned.to_csv(REVIEWS_OUTPUT_PATH, index=False)
     meta_cleaned.to_csv(META_OUTPUT_PATH, index=False)
     print("Text cleaned files saved.")
+        # Calculate stats for cleaned text entries
+    review_entries_cleaned = reviews_cleaned['combined_cleaned_text'].apply(lambda x: bool(x.strip())).sum() if 'combined_cleaned_text' in reviews_cleaned.columns else 0
+    meta_entries_cleaned = meta_cleaned['combined_cleaned_text'].apply(lambda x: bool(x.strip())).sum() if 'combined_cleaned_text' in meta_cleaned.columns else 0
+
+    stats = {
+        "review_entries_cleaned": int(review_entries_cleaned),
+        "meta_entries_cleaned": int(meta_entries_cleaned)
+    }
+
+    # Write stats to JSON file
+    with open(CLEAN_TEXT_STATS_PATH, 'w') as f:
+        json.dump(stats, f, indent=4)
+
+    print(f"Clean text stats saved to: {CLEAN_TEXT_STATS_PATH}")

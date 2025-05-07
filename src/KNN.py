@@ -4,6 +4,13 @@ from surprise import Dataset, Reader, KNNBasic, accuracy
 from surprise.model_selection import train_test_split
 from tqdm.auto import tqdm
 
+import os
+
+# Ensure all file paths are relative to this script's location
+import os
+print(os.getcwd())
+
+
 DATA      = "../data/processed/raw_reviews_baseline.csv"
 GROUND_TR = "ground_truth.json"
 K_NEIGH   = 40
