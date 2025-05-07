@@ -1,0 +1,10 @@
+{
+    "reviews": {
+        "numeric_missing_imputed": 1985,
+        "text_missing_imputed": 4300
+    },
+    "metadata": {
+        "numeric_missing_imputed": 9803,
+        "text_missing_imputed": 19311
+    }
+}

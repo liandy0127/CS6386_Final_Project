@@ -24,8 +24,8 @@ def read_jsonl_in_chunks(file_path, max_lines=10000):
                 print(f"Skipping invalid line {i+1} in {file_path}")
     return pd.DataFrame(data)
 
-review_df = read_jsonl_in_chunks('../data/raw/Video_Games_subset.jsonl')
-meta_df = read_jsonl_in_chunks('../data/raw/meta_Video_Games_subset.jsonl')
+review_df = read_jsonl_in_chunks('data/raw/Video_Games_subset.jsonl')
+meta_df = read_jsonl_in_chunks('data/raw/meta_Video_Games_subset.jsonl')
 
 print("Review columns:", review_df.columns.tolist())
 print("Meta columns:", meta_df.columns.tolist())
